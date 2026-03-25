@@ -1,0 +1,7 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# PyTorch versão explícita para forçar o download apenas do motor de CPU (Muitas vezes acelera o envio e previne estouro de limite no Streamlit Cloud)
+torch
+sentence-transformers
+pinecone
+streamlit
