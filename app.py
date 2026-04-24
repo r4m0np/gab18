@@ -1,4 +1,5 @@
 import streamlit as st
+import json
 from sentence_transformers import SentenceTransformer
 from pinecone import Pinecone
 
@@ -6,16 +7,26 @@ from pinecone import Pinecone
 # Configuração da Página
 # ==========================================
 st.set_page_config(
-    page_title="Pesquisa Jurisprudencial",
+    page_title="Uniformizador de Jurisprudência",
     page_icon="⚖️",
     layout="wide"
 )
 
+# Remove padding padrão do Streamlit para o HTML ocupar a tela toda
+st.markdown("""
+<style>
+    .block-container { padding: 0 !important; max-width: 100% !important; }
+    header, footer, .stDeployButton { display: none !important; }
+    iframe { border: none !important; }
+    [data-testid="stAppViewBlockContainer"] { padding: 0 !important; }
+</style>
+""", unsafe_allow_html=True)
+
 # ==========================================
-# Autenticação e Gestão de Estado
+# Autenticação
 # ==========================================
 def check_password():
-    """Retorna True se o usuário estiver logado com a senha correta."""
+    # Inicialização segura do estado de login
     if "logged_in" not in st.session_state:
         st.session_state["logged_in"] = False
 
@@ -24,9 +35,7 @@ def check_password():
         with col_main:
             st.title("🔒 Acesso Restrito")
             password = st.text_input("Senha do Gabinete", type="password")
-            
             if st.button("Entrar", type="primary"):
-                # st.secrets gerencia de forma segura as variáveis no Streamlit Cloud
                 if password == st.secrets.get("SENHA_GABINETE", ""):
                     st.session_state["logged_in"] = True
                     st.rerun()
@@ -36,153 +45,356 @@ def check_password():
     return True
 
 # ==========================================
-# Caching e Vetorização (O Core de Performance)
+# Modelo
 # ==========================================
-# Isolamos o carregamento na RAM para que ele aconteça apenas UMA vez para todos
 @st.cache_resource(show_spinner="Carregando modelo de IA...")
 def load_model():
-    """Carrega o modelo na RAM global da aplicação."""
     return SentenceTransformer("intfloat/multilingual-e5-small")
 
 # ==========================================
-# Aplicação Principal (UI)
+# HTML do Split View
+# ==========================================
+def build_splitview_html(results_json, query, total_docs):
+    """Gera o HTML completo do split-view com os dados reais."""
+    return f"""
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+:root {{
+  --bg: #FAFAF9; --bg-elev: #fff; --bg-sub: #F4F4F2;
+  --bd: #E7E5E0; --bd-str: #D4D2CC;
+  --fg: #1A1916; --fg-m: #6B6964; --fg-f: #9C9A94;
+  --accent: oklch(0.55 0.13 250); --accent-soft: oklch(0.96 0.02 250); --accent-bd: oklch(0.88 0.04 250);
+  --warn: oklch(0.62 0.13 65); --warn-soft: oklch(0.96 0.03 80);
+  --ok: oklch(0.58 0.11 155); --ok-soft: oklch(0.96 0.03 155);
+  --font: 'Inter', -apple-system, system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+}}
+*, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+html, body {{ font-family: var(--font); color: var(--fg); background: var(--bg); height: 100%; overflow: hidden; }}
+::selection {{ background: var(--accent-soft); }}
+input[type="checkbox"] {{ accent-color: var(--accent); }}
+::-webkit-scrollbar {{ width: 6px; }}
+::-webkit-scrollbar-track {{ background: transparent; }}
+::-webkit-scrollbar-thumb {{ background: var(--bd-str); border-radius: 3px; }}
+
+.pill {{ display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 500; white-space: nowrap; border: 1px solid transparent; margin: 0 3px 3px 0; }}
+.pill-accent {{ background: var(--accent-soft); color: oklch(0.38 0.12 250); border-color: var(--accent-bd); }}
+.pill-neutral {{ background: var(--bg-sub); color: #4A4844; border-color: var(--bd); }}
+.pill-warn {{ background: var(--warn-soft); color: oklch(0.42 0.11 65); border-color: oklch(0.85 0.06 80); }}
+.pill-ok {{ background: var(--ok-soft); color: oklch(0.38 0.10 155); border-color: oklch(0.85 0.05 155); }}
+.type-chip {{ display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }}
+.type-moc {{ background: oklch(0.95 0.03 250); color: oklch(0.38 0.12 250); }}
+.type-juris {{ background: oklch(0.95 0.025 30); color: oklch(0.40 0.11 30); }}
+.dot {{ width: 5px; height: 5px; border-radius: 50%; display: inline-block; }}
+mark {{ background: rgba(59,130,246,0.18); color: inherit; padding: 0 2px; border-radius: 2px; }}
+.fg {{ font-size: 10px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: var(--fg-m); margin-bottom: 8px; }}
+.group-hdr {{ font-size: 10px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: var(--fg-m); padding: 10px 20px 6px; border-bottom: 1px solid var(--bd); background: var(--bg); display: flex; justify-content: space-between; }}
+.meta-label {{ font-size: 10px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: var(--fg-m); margin-bottom: 5px; }}
+.meta-label.pri {{ color: oklch(0.38 0.12 250); }}
+.content-box {{ background: var(--bg); border: 1px solid var(--bd); border-radius: 8px; padding: 16px 20px; font-size: 13.5px; line-height: 1.7; white-space: pre-wrap; max-width: 720px; }}
+.btn {{ display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--bd); background: transparent; padding: 5px 12px; border-radius: 6px; font-size: 12px; font-family: var(--font); font-weight: 500; cursor: pointer; color: var(--fg); transition: background .1s; }}
+.btn:hover {{ background: var(--bg-sub); }}
+
+.app {{ display: flex; flex-direction: column; height: 100vh; }}
+.topbar {{ display: flex; align-items: center; gap: 16px; padding: 10px 24px; border-bottom: 1px solid var(--bd); background: var(--bg-elev); flex-shrink: 0; }}
+.body {{ flex: 1; display: grid; grid-template-columns: 224px 1fr 1fr; overflow: hidden; min-height: 0; }}
+.filters {{ border-right: 1px solid var(--bd); padding: 18px 16px; overflow-y: auto; background: var(--bg); }}
+.filter-group {{ margin-bottom: 18px; }}
+.filter-label {{ display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 4px 0; cursor: pointer; }}
+.list {{ border-right: 1px solid var(--bd); overflow-y: auto; background: var(--bg-elev); }}
+.row {{ padding: 14px 18px; border-bottom: 1px solid var(--bd); cursor: pointer; border-left: 3px solid transparent; transition: background .08s; }}
+.row:hover {{ background: var(--bg-sub); }}
+.row.sel {{ background: var(--accent-soft); border-left-color: var(--accent); }}
+.detail {{ overflow-y: auto; background: var(--bg); }}
+.empty {{ display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--fg-f); gap: 8px; text-align: center; padding: 40px; }}
+.toast {{ position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(60px); background: var(--fg); color: #fff; padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 500; opacity: 0; transition: all .25s cubic-bezier(.2,.8,.2,1); z-index: 999; pointer-events: none; }}
+.toast.show {{ opacity: 1; transform: translateX(-50%) translateY(0); }}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="width:28px;height:28px;border-radius:6px;background:var(--fg);color:#fff;display:grid;place-items:center;font-size:14px;font-weight:700">⚖</div>
+      <div><div style="font-size:14px;font-weight:600">Uniformizador</div><div style="font-size:10px;color:var(--fg-m);letter-spacing:0.3px;text-transform:uppercase">Gabinete · Jurisprudência</div></div>
+    </div>
+    <div style="flex:1;text-align:center;font-size:13px;color:var(--fg-m)">Pesquisa: "<b style="color:var(--fg)">{query_escaped}</b>"</div>
+    <div style="font-size:11px;color:var(--fg-m);display:flex;gap:16px;align-items:center">
+      <span style="font-family:var(--mono)">{total_docs}</span> docs
+    </div>
+  </div>
+  <div class="body">
+    <div class="filters" id="filtersPanel"></div>
+    <div class="list" id="listPanel"></div>
+    <div class="detail" id="detailPanel"><div class="empty"><div style="font-size:14px;font-weight:500;color:var(--fg-m)">Selecione um resultado</div></div></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const RESULTS = {results_json};
+const QUERY = {query_json};
+
+function parseFP(fp) {{
+  const p = fp.split("/"); const nm = p[p.length-1].replace(/\\.md$/,"").replace(/_/g," ");
+  const cat = p.length > 2 ? p[1] : "Geral"; const bc = p.slice(0,-1).join(" / ");
+  return {{ name: nm, cat, bc }};
+}}
+function esc(s) {{ const d=document.createElement("div"); d.textContent=s; return d.innerHTML; }}
+function hl(text, q) {{
+  if(!text||!q) return esc(text||"");
+  const terms = q.split(/\\s+/).filter(t=>t.length>2).map(t=>t.replace(/[.*+?^${{}}()|[\\]\\\\]/g,'\\\\$&'));
+  if(!terms.length) return esc(text);
+  return esc(text).replace(new RegExp("("+terms.join("|")+")","gi"), "<mark>$1</mark>");
+}}
+function relBar(score, w) {{
+  const pct = Math.round(score*100);
+  const c = pct>=80?"oklch(0.58 0.11 155)":pct>=65?"oklch(0.55 0.13 250)":"oklch(0.62 0.08 260)";
+  return '<span style="display:inline-flex;align-items:center;gap:8px"><span style="width:'+w+'px;height:4px;background:var(--bd);border-radius:2px;overflow:hidden"><span style="display:block;height:100%;width:'+pct+'%;background:'+c+';border-radius:2px"></span></span><span style="font-family:var(--mono);font-size:11px;color:var(--fg-m)">'+pct+'%</span></span>';
+}}
+function typeChip(tipo) {{
+  const j = tipo.toLowerCase().includes("juris");
+  const cls = j ? "type-juris" : "type-moc";
+  const dot = j ? "oklch(0.60 0.13 30)" : "var(--accent)";
+  return '<span class="type-chip '+cls+'"><span class="dot" style="background:'+dot+'"></span>'+(j?"Jurisprudência":"MOC")+'</span>';
+}}
+function pills(arr, tone) {{ return arr.map(v=>'<span class="pill pill-'+tone+'">'+esc(v)+'</span>').join(""); }}
+function showToast(msg) {{
+  const el=document.getElementById("toast"); el.textContent=msg; el.classList.add("show");
+  setTimeout(()=>el.classList.remove("show"),1800);
+}}
+
+// State
+let selectedId = RESULTS.length ? RESULTS[0].id : null;
+let filters = {{ tipos: new Set(["MOC","Jurisprudência"]), status: new Set(["Atual"]), threshold: 50, tags: new Set() }};
+const allTags = Array.from(new Set(RESULTS.flatMap(r=>r.tags||[])));
+
+function getFiltered() {{
+  return RESULTS.filter(r =>
+    filters.tipos.has(r.tipo) &&
+    filters.status.has(r.status) &&
+    Math.round(r.score*100) >= filters.threshold &&
+    (filters.tags.size===0 || (r.tags||[]).some(t=>filters.tags.has(t)))
+  );
+}}
+
+function renderFilters() {{
+  const el = document.getElementById("filtersPanel");
+  const typeCounts = {{ MOC: RESULTS.filter(r=>r.tipo==="MOC").length, "Jurisprudência": RESULTS.filter(r=>r.tipo==="Jurisprudência").length }};
+  el.innerHTML = `
+    <div class="filter-group"><div class="fg">Tipo</div>
+      ${{["MOC","Jurisprudência"].map(t=>`<label class="filter-label"><input type="checkbox" ${{filters.tipos.has(t)?"checked":""}} onchange="toggleFilter('tipos','${{t}}')">${{t}}<span style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--fg-f)">${{typeCounts[t]||0}}</span></label>`).join("")}}
+    </div>
+    <div class="filter-group"><div class="fg">Status</div>
+      <label class="filter-label"><input type="checkbox" ${{filters.status.has("Atual")?"checked":""}} onchange="toggleFilter('status','Atual')">Atual</label>
+      <label class="filter-label"><input type="checkbox" ${{filters.status.has("Desatualizada")?"checked":""}} onchange="toggleFilter('status','Desatualizada')" style="accent-color:var(--warn)">Desatualizada</label>
+    </div>
+    <div class="filter-group"><div class="fg">Limiar de relevância</div>
+      <input type="range" min="30" max="95" value="${{filters.threshold}}" oninput="setThreshold(+this.value)" style="width:100%;accent-color:var(--accent)">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--fg-m);margin-top:4px"><span>30%</span><span style="font-family:var(--mono);font-weight:600;color:var(--fg)">≥ ${{filters.threshold}}%</span><span>95%</span></div>
+    </div>
+    <div class="filter-group"><div class="fg">Tags</div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px">
+        ${{allTags.map(t=>`<button onclick="toggleTag('${{t}}')" style="display:inline-flex;font-size:10px;padding:3px 9px;border-radius:4px;border:1px solid ${{filters.tags.has(t)?'var(--accent-bd)':'var(--bd)'}};background:${{filters.tags.has(t)?'var(--accent-soft)':'transparent'}};color:${{filters.tags.has(t)?'oklch(0.38 0.12 250)':'var(--fg)'}};cursor:pointer;font-family:var(--font);font-weight:500">${{esc(t)}}</button>`).join("")}}
+      </div>
+    </div>`;
+}}
+
+function renderList() {{
+  const el = document.getElementById("listPanel");
+  const items = getFiltered();
+  if (!items.find(r=>r.id===selectedId) && items.length) selectedId = items[0].id;
+
+  const grouped = {{}};
+  items.forEach(r=>{{ (grouped[r.tipo]=grouped[r.tipo]||[]).push(r); }});
+
+  let html = `<div style="padding:14px 18px;border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between">
+    <div><div style="font-size:13px;font-weight:600">${{items.length}} resultado${{items.length!==1?"s":""}}</div>
+    <div style="font-size:11px;color:var(--fg-m);margin-top:2px">↑↓ navegar</div></div></div>`;
+
+  if (!items.length) {{
+    html += '<div style="padding:40px;text-align:center;color:var(--fg-f)"><div style="font-size:14px;font-weight:500;color:var(--fg-m)">Nenhum resultado</div><div style="font-size:12px">Ajuste os filtros</div></div>';
+  }} else {{
+    for (const [tipo, rs] of Object.entries(grouped)) {{
+      html += `<div class="group-hdr"><span>${{tipo}}</span><span style="font-family:var(--mono)">${{rs.length}}</span></div>`;
+      for (const r of rs) {{
+        const {{name,bc}} = parseFP(r.fp);
+        const isD = r.status==="Desatualizada";
+        html += `<div class="row${{r.id===selectedId?' sel':''}}" onclick="selectRow('${{r.id}}')">
+          <div style="margin-bottom:4px;display:flex;align-items:center;gap:8px">${{relBar(r.score,44)}}${{isD?'<span class="pill pill-warn">⚠ Desatualizada</span>':''}}</div>
+          <div style="font-size:13px;font-weight:600;letter-spacing:-0.1px;margin-bottom:2px;line-height:1.3">${{hl(name,QUERY)}}</div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--fg-f);margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${{esc(bc)}}</div>
+          <div style="font-size:12px;color:var(--fg-m);line-height:1.5;margin-bottom:6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${{hl((r.conteudo||"").split("\\n")[0].slice(0,140)+"…",QUERY)}}</div>
+          <div>${{pills((r.votos||[]).slice(0,2),"accent")}}${{(r.votos||[]).length>2?'<span class="pill pill-neutral">+'+(r.votos.length-2)+'</span>':''}}</div>
+        </div>`;
+      }}
+    }}
+  }}
+  el.innerHTML = html;
+  renderDetail();
+}}
+
+function renderDetail() {{
+  const el = document.getElementById("detailPanel");
+  const r = RESULTS.find(x=>x.id===selectedId);
+  if (!r) {{ el.innerHTML = '<div class="empty"><div style="font-size:14px;font-weight:500;color:var(--fg-m)">Selecione um resultado</div></div>'; return; }}
+  const {{name,bc}} = parseFP(r.fp);
+  const isD = r.status==="Desatualizada";
+  const cit = name+" — "+r.tipo+". Votos: "+(r.votos||[]).join("; ")+". Fonte: Gabinete ("+r.fp+").";
+  el.innerHTML = `
+    <div style="padding:18px 28px 16px;border-bottom:1px solid var(--bd);background:var(--bg-elev)">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+        ${{typeChip(r.tipo)}}
+        ${{isD?'<span class="pill pill-warn">⚠ Desatualizada</span>':'<span class="pill pill-ok">✓ Atual</span>'}}
+        <span style="flex:1"></span>
+        ${{relBar(r.score,72)}}
+      </div>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--fg-f);margin-bottom:6px">${{esc(bc)}}</div>
+      <h2 style="margin:0;font-size:22px;font-weight:600;letter-spacing:-0.4px;line-height:1.25">${{hl(name,QUERY)}}</h2>
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+        <button class="btn" onclick="navigator.clipboard.writeText('${{cit.replace(/'/g,"\\\\'")}}');showToast('Citação copiada')">📋 Copiar citação</button>
+        <button class="btn">⬇ Exportar</button>
+        <button class="btn">☆ Favoritar</button>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;padding:14px 28px;background:var(--bg-elev);border-bottom:1px solid var(--bd)">
+      <div><div class="meta-label pri">Votos aplicados</div>${{(r.votos||[]).length?pills(r.votos,"accent"):'<span style="font-size:12px;color:var(--fg-f);font-style:italic">Nenhum</span>'}}</div>
+      <div><div class="meta-label">Atualizado</div><span style="font-family:var(--mono);font-size:13px">${{r.updated||"—"}}</span></div>
+      <div style="grid-column:1/-1;padding-top:12px"><div class="meta-label">Tags</div>${{pills((r.tags||[]).map(t=>"#"+t),"neutral")}}</div>
+    </div>
+    <div style="padding:24px 28px 40px">
+      <div class="meta-label" style="margin-bottom:12px">Conteúdo da nota</div>
+      <div class="content-box">${{hl(r.conteudo||"",QUERY)}}</div>
+    </div>`;
+}}
+
+function selectRow(id) {{ selectedId=id; renderList(); }}
+function toggleFilter(key,val) {{ filters[key].has(val)?filters[key].delete(val):filters[key].add(val); renderFilters(); renderList(); }}
+function setThreshold(v) {{ filters.threshold=v; renderFilters(); renderList(); }}
+function toggleTag(t) {{ filters.tags.has(t)?filters.tags.delete(t):filters.tags.add(t); renderFilters(); renderList(); }}
+
+// Keyboard nav
+document.addEventListener("keydown", e => {{
+  const items = getFiltered();
+  if (e.key==="ArrowDown"||e.key==="ArrowUp"||e.key==="j"||e.key==="k") {{
+    e.preventDefault();
+    const idx = items.findIndex(r=>r.id===selectedId);
+    const next = (e.key==="ArrowDown"||e.key==="j") ? Math.min(idx+1,items.length-1) : Math.max(idx-1,0);
+    if (items[next]) {{ selectedId=items[next].id; renderList(); }}
+  }}
+}});
+
+renderFilters();
+renderList();
+</script>
+</body>
+</html>
+""".replace("{query_escaped}", query.replace('"', '&quot;')).replace("{total_docs}", str(total_docs)).replace("{results_json}", results_json).replace("{query_json}", json.dumps(query))
+
+
+# ==========================================
+# App Principal
 # ==========================================
 def main():
-    # Bloqueio de Segurança
     if not check_password():
         return
 
-    # Restringindo a UI a 70% da tela usando colunas
-    _, col_main, _ = st.columns([1.5, 7.0, 1.5])
-    
-    with col_main:
-        st.title("⚖️ Pesquisa Semântica do Gabinete")
-        st.markdown("Busca semântica de jurisprudência.")
+    # Conexão Pinecone
+    try:
+        pc = Pinecone(api_key=st.secrets["PINECONE_API_KEY"])
+        index_name = st.secrets.get("PINECONE_INDEX_NAME", "default-index")
+        index = pc.Index(index_name)
+    except Exception as e:
+        st.error("Falha ao conectar ao Pinecone.")
+        st.exception(e)
+        return
 
-        # Conexão com Pinecone
-        try:
-            pc = Pinecone(api_key=st.secrets["PINECONE_API_KEY"])
-            index_name = st.secrets.get("PINECONE_INDEX_NAME", "default-index")
-            index = pc.Index(index_name)
-        except Exception as e:
-            st.error("Falha ao inicializar banco de dados no Pinecone.")
-            st.exception(e)
-            return
+    # Campo de busca (fora do HTML, para acionar o Streamlit)
+    query_text = st.text_input(
+        "🔍 Pesquisa semântica",
+        placeholder="Ex: taxa de lixo progressiva",
+        label_visibility="collapsed"
+    )
 
-        # Formulário de Pesquisa
-        query_text = st.text_input("O que você deseja buscar?", placeholder="Ex: taxa de lixo progressiva")
-
-        if st.button("Pesquisar", type="primary") and query_text:
+    if st.button("Pesquisar", type="primary") or (query_text and "last_query" in st.session_state and st.session_state["last_query"] == query_text):
+        if query_text:
+            st.session_state["last_query"] = query_text
             model = load_model()
-            
-            with st.spinner("Vetorizando pesquisa e cruzando base de dados..."):
-                
-                # Regra de Sobrevivência: O Prefixo E5 Exato
+
+            with st.spinner("Pesquisando..."):
                 formatted_query = f"query: {query_text}"
                 query_vector = model.encode(formatted_query).tolist()
-                
-                # Busca no Banco Vetorial
+
                 try:
                     resultados = index.query(
                         vector=query_vector,
-                        top_k=100, # Busca profunda para garantir a listagem de todos resultados com > 50%
+                        top_k=100,
                         include_metadata=True
                     )
                 except Exception as e:
-                    st.error("Erro durante a consulta no banco de dados vetorial.")
+                    st.error("Erro na consulta.")
                     st.exception(e)
                     return
-                
-                # Análise e Renderização Limpa
+
                 matches = resultados.get("matches", [])
-                
-                # Deduplicação por arquivo de origem e Limiar de 50%
+
+                # Deduplicação e limiar
                 seen_files = set()
-                filtered_matches = []
-                
+                results_for_ui = []
+                counter = 0
+
                 for match in matches:
                     score = match.get("score", 0.0)
-                    score_pct = score * 100
                     metadata = match.get("metadata", {})
                     file_path = metadata.get("file_path", "Documento_Desconhecido")
-                    
-                    if score_pct >= 50.0 and file_path not in seen_files:
-                        filtered_matches.append(match)
-                        seen_files.add(file_path)
-                
-                # Separar resultados atualizados dos desatualizados
-                resultados_atuais = []
-                resultados_desatualizados = []
-                
-                for match in filtered_matches:
-                    metadata = match.get("metadata", {})
-                    status = metadata.get("status", "")
-                    if "desatualizada" in str(status).strip().lower():
-                        resultados_desatualizados.append(match)
-                    else:
-                        resultados_atuais.append(match)
-                
-                total = len(resultados_atuais) + len(resultados_desatualizados)
-                st.success(f"{total} resultados relevantes encontrados.")
-                st.divider()
-                
-                FONT = "font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.6;"
-                
-                # === RESULTADOS PRINCIPAIS ===
-                for match in resultados_atuais:
-                    score = match.get("score", 0.0)
-                    score_pct = score * 100
-                    metadata = match.get("metadata", {})
-                    file_path = metadata.get("file_path", "Documento")
-                    
-                    # Título com o Path
-                    st.subheader(f"📄 {file_path}")
-                    st.caption(f"**Relevância:** {score_pct:.1f}%")
-                    
-                    # Conteúdo da Nota
-                    conteudo = metadata.get("conteudo", "")
-                    if conteudo and conteudo != "Sem contexto.":
-                        with st.expander("Ler Conteúdo da MOC / Jurisprudência", expanded=False):
-                            html_text = f"<div style='font-family: Arial, sans-serif; font-size: 12pt; white-space: pre-wrap; line-height: 1.6;'>{conteudo}</div>"
-                            st.markdown(html_text, unsafe_allow_html=True)
-                            
-                    # Metadado Crítico: Votos
-                    votos = metadata.get("votos_aplicados", [])
-                    
-                    if not votos:
-                        st.markdown(f"<div style='{FONT}'><b>Votos cadastrados:</b> Nenhum voto cadastrado</div>", unsafe_allow_html=True)
-                    else:
-                        votos_text = ", ".join([str(v) for v in votos]) if isinstance(votos, list) else str(votos)
-                        st.markdown(f"<div style='{FONT}'><b>Votos cadastrados:</b> {votos_text}</div>", unsafe_allow_html=True)
-                    
-                    # Outros metadados
-                    tags = metadata.get("tags", [])
-                    if tags:
-                        tags_text = ", ".join([str(t) for t in tags]) if isinstance(tags, list) else str(tags)
-                        st.markdown(f"<div style='{FONT}'><b>Tags:</b> {tags_text}</div>", unsafe_allow_html=True)
-                    
-                    status = metadata.get("status")
-                    if status:
-                        st.markdown(f"<div style='{FONT}'><b>Status:</b> {status}</div>", unsafe_allow_html=True)
 
-                    tipo = metadata.get("tipo")
-                    if tipo:
-                        st.markdown(f"<div style='{FONT}'><b>Tipo:</b> {tipo}</div>", unsafe_allow_html=True)
-                        
-                    st.divider()
-                
-                # === NOTAS DESATUALIZADAS (Seção compacta ao final) ===
-                if resultados_desatualizados:
-                    FONT_SM = "font-family: Arial, sans-serif; font-size: 10pt; line-height: 1.4; color: #888;"
-                    st.markdown("---")
-                    st.markdown(f"<div style='font-family: Arial, sans-serif; font-size: 13pt; color: #999; margin-bottom: 8px;'>⚠️ Notas Desatualizadas ({len(resultados_desatualizados)})</div>", unsafe_allow_html=True)
-                    
-                    for match in resultados_desatualizados:
-                        score = match.get("score", 0.0)
-                        score_pct = score * 100
-                        metadata = match.get("metadata", {})
-                        file_path = metadata.get("file_path", "Documento")
-                        st.markdown(f"<div style='{FONT_SM}'>📄 <b>{file_path}</b> — Relevância: {score_pct:.1f}% — <i>Desatualizada</i></div>", unsafe_allow_html=True)
+                    if score * 100 >= 30.0 and file_path not in seen_files:
+                        seen_files.add(file_path)
+                        counter += 1
+
+                        votos = metadata.get("votos_aplicados", [])
+                        if isinstance(votos, str):
+                            votos = [v.strip() for v in votos.split(",") if v.strip()]
+
+                        tags = metadata.get("tags", [])
+                        if isinstance(tags, str):
+                            tags = [t.strip() for t in tags.split(",") if t.strip()]
+
+                        status = metadata.get("status", "Atual")
+                        if "desatualizada" in str(status).strip().lower():
+                            status = "Desatualizada"
+                        else:
+                            status = "Atual"
+
+                        results_for_ui.append({
+                            "id": f"r{counter:02d}",
+                            "score": round(score, 4),
+                            "fp": file_path,
+                            "tipo": metadata.get("tipo", "MOC"),
+                            "status": status,
+                            "votos": votos,
+                            "tags": tags,
+                            "updated": metadata.get("updated", ""),
+                            "conteudo": metadata.get("conteudo", ""),
+                        })
+
+                results_json = json.dumps(results_for_ui, ensure_ascii=False)
+
+                # Conta total de docs no index
+                try:
+                    stats = index.describe_index_stats()
+                    total_docs = stats.get("total_vector_count", 0)
+                except:
+                    total_docs = len(results_for_ui)
+
+                html = build_splitview_html(results_json, query_text, total_docs)
+
+                st.components.v1.html(html, height=700, scrolling=False)
+
 
 if __name__ == "__main__":
     main()
