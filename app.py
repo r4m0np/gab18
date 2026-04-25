@@ -12,15 +12,40 @@ st.set_page_config(
     layout="wide"
 )
 
-# Esconde TUDO do Streamlit — a UI inteira vem do HTML
+# Estilo: esconde chrome do Streamlit, mantém apenas o form de busca estilizado
 st.markdown("""
 <style>
-    .block-container { padding: 0 !important; max-width: 100% !important; }
     header, footer, .stDeployButton, [data-testid="stToolbar"] { display: none !important; }
+    .block-container { padding-top: 0 !important; padding-bottom: 0 !important; max-width: 100% !important; }
+    [data-testid="stAppViewBlockContainer"] { padding-top: 0 !important; }
+
+    /* Barra de busca estilizada */
+    .search-bar {
+        background: #fff; border-bottom: 1px solid #E7E5E0;
+        padding: 10px 24px; display: flex; align-items: center; gap: 16px;
+        font-family: 'Inter', -apple-system, system-ui, sans-serif;
+    }
+    .search-bar .logo {
+        width: 28px; height: 28px; border-radius: 6px; background: #1A1916;
+        color: #fff; display: grid; place-items: center; font-size: 14px; font-weight: 700;
+        flex-shrink: 0;
+    }
+    .search-bar .title { font-size: 14px; font-weight: 600; color: #1A1916; }
+    .search-bar .sub { font-size: 10px; color: #6B6964; letter-spacing: 0.3px; text-transform: uppercase; }
+
+    /* Esconde labels do Streamlit no form */
+    .stTextInput label, .stForm label { display: none !important; }
+    .stTextInput > div > div { border-radius: 8px !important; }
+    .stFormSubmitButton button {
+        background: #1A1916 !important; color: #fff !important;
+        border: none !important; border-radius: 8px !important;
+        font-weight: 500 !important; padding: 0.4rem 1.2rem !important;
+    }
+    .stFormSubmitButton button:hover { opacity: 0.85; }
+    .stSpinner { padding: 8px 24px !important; }
+
+    /* iframe do split-view ocupa tudo */
     iframe { border: none !important; }
-    [data-testid="stAppViewBlockContainer"] { padding: 0 !important; }
-    .stApp > div:first-child { padding: 0 !important; }
-    section[data-testid="stSidebar"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -109,16 +134,10 @@ def do_search(query_text, index):
     return results_for_ui
 
 # ==========================================
-# HTML do Split View
+# HTML do Split View (só resultados)
 # ==========================================
-def build_splitview_html(results_json, query, total_docs, has_results):
-    """Gera o HTML completo do split-view."""
-
-    # Estado visual: se não há busca ainda, mostra tela inicial
-    initial_screen = "true" if not has_results else "false"
-
-    return """
-<!doctype html>
+def build_splitview_html(results_json, query, total_docs):
+    return """<!doctype html>
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8" />
@@ -161,9 +180,7 @@ mark { background: rgba(59,130,246,0.18); color: inherit; padding: 0 2px; border
 .btn:hover { background: var(--bg-sub); }
 
 .app { display: flex; flex-direction: column; height: 100vh; }
-.topbar { display: flex; align-items: center; gap: 16px; padding: 10px 24px; border-bottom: 1px solid var(--bd); background: var(--bg-elev); flex-shrink: 0; }
 .body { flex: 1; display: grid; grid-template-columns: 224px 1fr 1fr; overflow: hidden; min-height: 0; }
-.body.no-results { grid-template-columns: 1fr; }
 .filters { border-right: 1px solid var(--bd); padding: 18px 16px; overflow-y: auto; background: var(--bg); }
 .filter-group { margin-bottom: 18px; }
 .filter-label { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 4px 0; cursor: pointer; }
@@ -175,57 +192,14 @@ mark { background: rgba(59,130,246,0.18); color: inherit; padding: 0 2px; border
 .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--fg-f); gap: 8px; text-align: center; padding: 40px; }
 .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(60px); background: var(--fg); color: #fff; padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 500; opacity: 0; transition: all .25s cubic-bezier(.2,.8,.2,1); z-index: 999; pointer-events: none; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-
-/* Tela inicial */
-.welcome { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 16px; text-align: center; }
-.welcome h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.5px; color: var(--fg); }
-.welcome p { font-size: 14px; color: var(--fg-m); max-width: 420px; line-height: 1.6; }
-
-/* Search */
-.search-wrap { position: relative; flex: 1; max-width: 600px; }
-.search-input { width: 100%; border: 1px solid var(--bd); border-radius: 8px; padding: 9px 14px 9px 38px; font-size: 14px; font-family: var(--font); color: var(--fg); background: var(--bg-elev); outline: none; transition: border-color .12s, box-shadow .12s; }
-.search-input:focus { border-color: var(--accent-bd); box-shadow: 0 0 0 3px var(--accent-soft); }
-.search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--fg-m); pointer-events: none; }
-
-/* Welcome search é maior */
-.welcome .search-wrap { max-width: 520px; width: 100%; }
-.welcome .search-input { padding: 14px 18px 14px 44px; font-size: 16px; border-radius: 12px; }
-.welcome .search-icon { left: 16px; }
-.welcome .search-hint { font-size: 11px; color: var(--fg-f); margin-top: 4px; }
 </style>
 </head>
 <body>
 <div class="app">
-  <!-- Top bar -->
-  <div class="topbar">
-    <div style="display:flex;align-items:center;gap:10px">
-      <div style="width:28px;height:28px;border-radius:6px;background:var(--fg);color:#fff;display:grid;place-items:center;font-size:14px;font-weight:700">⚖</div>
-      <div>
-        <div style="font-size:14px;font-weight:600">Uniformizador</div>
-        <div style="font-size:10px;color:var(--fg-m);letter-spacing:0.3px;text-transform:uppercase">Gabinete · Jurisprudência</div>
-      </div>
-    </div>
-
-    <form id="topSearchForm" style="position:relative;flex:1;max-width:600px;margin:0 20px;display:none">
-      <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-      <input class="search-input" id="topSearchInput" placeholder="Pesquisar jurisprudência..." />
-    </form>
-
-    <div style="flex:1"></div>
-
-    <div id="statsBar" style="font-size:11px;color:var(--fg-m);display:flex;gap:16px;align-items:center">
-      <span><span style="font-family:var(--mono)">""" + str(total_docs) + """</span> docs</span>
-    </div>
-
-    <div style="display:flex;align-items:center;gap:8px;margin-left:18px">
-      <div style="width:26px;height:26px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:10px;font-weight:600">RC</div>
-      <div style="font-size:12px"><div style="font-weight:500">Ramon C.</div><div style="font-size:10px;color:var(--fg-m)">Assessor</div></div>
-    </div>
-  </div>
-
-  <!-- Body -->
   <div class="body" id="mainBody">
-    <!-- Conteúdo injetado por JS -->
+    <div class="filters" id="filtersPanel"></div>
+    <div class="list" id="listPanel"></div>
+    <div class="detail" id="detailPanel"><div class="empty"><div style="font-size:14px;font-weight:500;color:var(--fg-m)">Selecione um resultado</div></div></div>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -233,9 +207,7 @@ mark { background: rgba(59,130,246,0.18); color: inherit; padding: 0 2px; border
 <script>
 const RESULTS = """ + results_json + """;
 const QUERY = """ + json.dumps(query) + """;
-const IS_INITIAL = """ + initial_screen + """;
 
-// ═══════ Utils ═══════
 function parseFP(fp) {
   const p = fp.split("/"); const nm = p[p.length-1].replace(/\\.md$/,"").replace(/_/g," ");
   const cat = p.length > 2 ? p[1] : "Geral"; const bc = p.slice(0,-1).join(" / ");
@@ -265,19 +237,6 @@ function showToast(msg) {
   setTimeout(()=>el.classList.remove("show"),1800);
 }
 
-// ═══════ Streamlit comm ═══════
-function triggerSearch(query) {
-  // Envia a query para o Streamlit via query params
-  const url = new URL(window.parent.location.href);
-  url.searchParams.set("q", query);
-  window.parent.history.replaceState({}, "", url);
-  // Força rerun do Streamlit
-  window.parent.postMessage({ type: "streamlit:setComponentValue", value: query }, "*");
-  // Fallback: recarrega
-  window.parent.location.href = url.toString();
-}
-
-// ═══════ State ═══════
 let selectedId = RESULTS.length ? RESULTS[0].id : null;
 let filters = { tipos: new Set(["MOC","Jurisprudência"]), status: new Set(["Atual"]), threshold: 50, tags: new Set() };
 const allTags = Array.from(new Set(RESULTS.flatMap(r=>r.tags||[])));
@@ -289,41 +248,6 @@ function getFiltered() {
     Math.round(r.score*100) >= filters.threshold &&
     (filters.tags.size===0 || (r.tags||[]).some(t=>filters.tags.has(t)))
   );
-}
-
-// ═══════ Render ═══════
-function renderWelcome() {
-  const body = document.getElementById("mainBody");
-  body.className = "body no-results";
-  body.innerHTML = `
-    <div class="welcome">
-      <div style="width:56px;height:56px;border-radius:14px;background:var(--fg);color:#fff;display:grid;place-items:center;font-size:28px;font-weight:700">⚖</div>
-      <h1>Pesquisa Jurisprudencial</h1>
-      <p>Busque por temas, teses ou palavras-chave. A pesquisa semântica encontra resultados por significado, não apenas por palavras exatas.</p>
-      <form onsubmit="event.preventDefault();triggerSearch(this.querySelector('input').value)" class="search-wrap" style="max-width:520px;width:100%;position:relative">
-        <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="left:16px"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        <input class="search-input" style="padding:14px 18px 14px 44px;font-size:16px;border-radius:12px" placeholder="Ex: taxa de lixo progressiva" autofocus />
-      </form>
-      <div style="font-size:11px;color:var(--fg-f);margin-top:4px">Pressione Enter para pesquisar</div>
-    </div>`;
-}
-
-function renderSplitView() {
-  const body = document.getElementById("mainBody");
-  body.className = "body";
-  body.style.gridTemplateColumns = "224px 1fr 1fr";
-  body.innerHTML = '<div class="filters" id="filtersPanel"></div><div class="list" id="listPanel"></div><div class="detail" id="detailPanel"></div>';
-
-  // Mostra busca no topbar
-  document.getElementById("topSearchForm").style.display = "block";
-  document.getElementById("topSearchInput").value = QUERY;
-  document.getElementById("topSearchForm").onsubmit = function(e) {
-    e.preventDefault();
-    triggerSearch(document.getElementById("topSearchInput").value);
-  };
-
-  renderFilters();
-  renderList();
 }
 
 function renderFilters() {
@@ -402,7 +326,6 @@ function renderDetail() {
       <h2 style="margin:0;font-size:22px;font-weight:600;letter-spacing:-0.4px;line-height:1.25">${hl(name,QUERY)}</h2>
       <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
         <button class="btn" onclick="navigator.clipboard.writeText(\`${cit.replace(/`/g,'\\`')}\`);showToast('Citação copiada')">📋 Copiar citação</button>
-        <button class="btn">⬇ Exportar</button>
         <button class="btn">☆ Favoritar</button>
       </div>
     </div>
@@ -422,9 +345,7 @@ function toggleFilter(key,val) { filters[key].has(val)?filters[key].delete(val):
 function setThreshold(v) { filters.threshold=v; renderFilters(); renderList(); }
 function toggleTag(t) { filters.tags.has(t)?filters.tags.delete(t):filters.tags.add(t); renderFilters(); renderList(); }
 
-// Keyboard nav
 document.addEventListener("keydown", e => {
-  if (IS_INITIAL) return;
   if (document.activeElement && document.activeElement.tagName === "INPUT") return;
   const items = getFiltered();
   if (e.key==="ArrowDown"||e.key==="ArrowUp"||e.key==="j"||e.key==="k") {
@@ -433,19 +354,13 @@ document.addEventListener("keydown", e => {
     const next = (e.key==="ArrowDown"||e.key==="j") ? Math.min(idx+1,items.length-1) : Math.max(idx-1,0);
     if (items[next]) { selectedId=items[next].id; renderList(); }
   }
-  if (e.key==="/") { e.preventDefault(); document.getElementById("topSearchInput")?.focus(); }
 });
 
-// ═══════ Init ═══════
-if (IS_INITIAL) {
-  renderWelcome();
-} else {
-  renderSplitView();
-}
+renderFilters();
+renderList();
 </script>
 </body>
-</html>
-"""
+</html>"""
 
 
 # ==========================================
@@ -465,28 +380,68 @@ def main():
         st.exception(e)
         return
 
-    # Total de docs
-    try:
-        stats = index.describe_index_stats()
-        total_docs = stats.get("total_vector_count", 0)
-    except:
-        total_docs = 0
+    # Barra de busca (HTML estático + form Streamlit)
+    st.markdown("""
+    <div class="search-bar">
+        <div class="logo">⚖</div>
+        <div>
+            <div class="title">Uniformizador</div>
+            <div class="sub">Gabinete · Jurisprudência</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # Lê query dos query params (vem do HTML via redirect)
-    query_text = st.query_params.get("q", "")
+    # Form de busca — Enter submete automaticamente
+    with st.form("search_form", clear_on_submit=False):
+        col1, col2 = st.columns([6, 1])
+        with col1:
+            query_text = st.text_input(
+                "Busca",
+                value=st.session_state.get("last_query", ""),
+                placeholder="Ex: taxa de lixo progressiva",
+                label_visibility="collapsed"
+            )
+        with col2:
+            submitted = st.form_submit_button("Pesquisar")
 
-    if query_text:
-        try:
-            results = do_search(query_text, index)
-            results_json = json.dumps(results, ensure_ascii=False)
-            html = build_splitview_html(results_json, query_text, total_docs, has_results=True)
-        except Exception as e:
-            st.error(f"Erro na pesquisa: {e}")
-            return
+    if submitted and query_text:
+        st.session_state["last_query"] = query_text
+
+    # Se há query, faz a busca e mostra resultados
+    active_query = st.session_state.get("last_query", "")
+
+    if active_query:
+        with st.spinner("Pesquisando..."):
+            try:
+                results = do_search(active_query, index)
+                results_json = json.dumps(results, ensure_ascii=False)
+
+                try:
+                    stats = index.describe_index_stats()
+                    total_docs = stats.get("total_vector_count", 0)
+                except Exception:
+                    total_docs = len(results)
+
+                html = build_splitview_html(results_json, active_query, total_docs)
+                st.components.v1.html(html, height=700, scrolling=False)
+
+            except Exception as e:
+                st.error(f"Erro na pesquisa: {e}")
     else:
-        html = build_splitview_html("[]", "", total_docs, has_results=False)
-
-    st.components.v1.html(html, height=800, scrolling=False)
+        # Estado inicial
+        st.markdown("""
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
+                    height:60vh;color:#6B6964;text-align:center;font-family:'Inter',sans-serif">
+            <div style="font-size:48px;margin-bottom:16px">⚖</div>
+            <div style="font-size:20px;font-weight:600;color:#1A1916;margin-bottom:8px">
+                Pesquisa Jurisprudencial
+            </div>
+            <div style="font-size:14px;max-width:400px;line-height:1.6">
+                Busque por temas, teses ou palavras-chave.<br>
+                A pesquisa semântica encontra resultados por significado.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
