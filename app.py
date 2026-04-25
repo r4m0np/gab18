@@ -16,8 +16,13 @@ st.set_page_config(
 st.markdown("""
 <style>
     header, footer, .stDeployButton, [data-testid="stToolbar"] { display: none !important; }
-    .block-container { padding-top: 0 !important; padding-bottom: 0 !important; max-width: 100% !important; }
-    [data-testid="stAppViewBlockContainer"] { padding-top: 0 !important; }
+    .block-container { padding: 0 !important; max-width: 100% !important; }
+    [data-testid="stAppViewBlockContainer"] { padding: 0 !important; }
+    .stApp > div:first-child { padding: 0 !important; }
+    section[data-testid="stSidebar"] { display: none !important; }
+    .element-container:has(iframe) { margin: 0 !important; padding: 0 !important; }
+    .stElementContainer { margin: 0 !important; }
+    iframe { width: 100% !important; min-height: calc(100vh - 160px) !important; }
 
     /* Barra de busca estilizada */
     .search-bar {
@@ -87,7 +92,7 @@ def do_search(query_text, index):
 
     resultados = index.query(
         vector=query_vector,
-        top_k=500,
+        top_k=10000,
         include_metadata=True
     )
 
@@ -101,7 +106,7 @@ def do_search(query_text, index):
         metadata = match.get("metadata", {})
         file_path = metadata.get("file_path", "Documento_Desconhecido")
 
-        if score * 100 >= 20.0 and file_path not in seen_files:
+        if file_path not in seen_files and counter < 200:
             seen_files.add(file_path)
             counter += 1
 
@@ -423,7 +428,7 @@ def main():
                     total_docs = len(results)
 
                 html = build_splitview_html(results_json, active_query, total_docs)
-                st.components.v1.html(html, height=700, scrolling=False)
+                st.components.v1.html(html, height=900, scrolling=False)
 
             except Exception as e:
                 st.error(f"Erro na pesquisa: {e}")
