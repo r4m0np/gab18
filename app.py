@@ -128,7 +128,7 @@ def do_search(query_text, index):
                 "id": f"r{counter:02d}",
                 "score": round(score, 4),
                 "fp": file_path,
-                "tipo": metadata.get("tipo", "MOC"),
+                "tipo": metadata.get("tipo", "") or "Outro",
                 "status": status,
                 "votos": votos,
                 "tags": tags,
@@ -243,7 +243,8 @@ function showToast(msg) {
 }
 
 let selectedId = RESULTS.length ? RESULTS[0].id : null;
-let filters = { tipos: new Set(["MOC","Jurisprudência"]), status: new Set(["Atual"]), threshold: 50, tags: new Set() };
+const allTipos = Array.from(new Set(RESULTS.map(r=>r.tipo).filter(Boolean)));
+let filters = { tipos: new Set(allTipos), status: new Set(["Atual","Desatualizada"]), threshold: 50, tags: new Set() };
 const allTags = Array.from(new Set(RESULTS.flatMap(r=>r.tags||[])));
 
 function getFiltered() {
@@ -257,10 +258,10 @@ function getFiltered() {
 
 function renderFilters() {
   const el = document.getElementById("filtersPanel");
-  const typeCounts = { MOC: RESULTS.filter(r=>r.tipo==="MOC").length, "Jurisprudência": RESULTS.filter(r=>r.tipo==="Jurisprudência").length };
+  const typeCounts = {}; allTipos.forEach(t => { typeCounts[t] = RESULTS.filter(r=>r.tipo===t).length; });
   el.innerHTML = `
     <div class="filter-group"><div class="fg">Tipo</div>
-      ${["MOC","Jurisprudência"].map(t=>`<label class="filter-label"><input type="checkbox" ${filters.tipos.has(t)?"checked":""} onchange="toggleFilter('tipos','${t}')">${t}<span style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--fg-f)">${typeCounts[t]||0}</span></label>`).join("")}
+      ${allTipos.map(t=>`<label class="filter-label"><input type="checkbox" ${filters.tipos.has(t)?"checked":""} onchange="toggleFilter('tipos','${t}')">${t}<span style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--fg-f)">${typeCounts[t]||0}</span></label>`).join("")}
     </div>
     <div class="filter-group"><div class="fg">Status</div>
       <label class="filter-label"><input type="checkbox" ${filters.status.has("Atual")?"checked":""} onchange="toggleFilter('status','Atual')">Atual</label>
