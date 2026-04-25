@@ -87,7 +87,7 @@ def do_search(query_text, index):
 
     resultados = index.query(
         vector=query_vector,
-        top_k=100,
+        top_k=500,
         include_metadata=True
     )
 
@@ -101,7 +101,7 @@ def do_search(query_text, index):
         metadata = match.get("metadata", {})
         file_path = metadata.get("file_path", "Documento_Desconhecido")
 
-        if score * 100 >= 30.0 and file_path not in seen_files:
+        if score * 100 >= 20.0 and file_path not in seen_files:
             seen_files.add(file_path)
             counter += 1
 
